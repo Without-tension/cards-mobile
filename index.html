@@ -53,13 +53,7 @@
             margin-bottom: 8px;
         }
 
-        .filter-row {
-            display: flex;
-            gap: 6px;
-            align-items: center;
-        }
-
-        input[type="number"] {
+        input[type="number"], input[type="email"], input[type="password"] {
             width: 100%;
             padding: 8px;
             border: 1px solid #444;
@@ -86,6 +80,7 @@
         .button-pc { background-color: #c8613c; color: #000; font-weight: bold; }
         .button-neutral { background-color: #334155; color: white; width: 100%; margin: 4px 0 10px 0; }
         .btn-refresh { background: linear-gradient(135deg, #2563eb, #1d4ed8); width: 100%; padding: 10px; margin-bottom: 10px; font-size: 13px; }
+        .btn-logout { background: #334155; color: #cbd5e1; font-size: 11px; padding: 3px 8px; margin-left: 6px; border-radius: 4px; }
 
         .table-wrapper {
             overflow-x: auto;
@@ -124,14 +119,50 @@
         }
         tr:hover { background-color: #1a2030; }
         .row-index { color: #64748b; font-size: 11px; text-align: center; }
+
+        /* Стилі для вікна входу */
+        #login-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.88);
+            z-index: 99999;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+        }
+        .login-box {
+            background: #161923;
+            padding: 25px 20px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 320px;
+            border: 1px solid #334155;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.8);
+            text-align: center;
+        }
     </style>
 </head>
 <body>
 
+<!-- ВІКНО АВТОРИЗАЦІЇ -->
+<div id="login-modal">
+    <div class="login-box">
+        <h4 style="margin: 0 0 15px 0; color: #f8fafc; font-size: 16px;">Вхід до бази Cards</h4>
+        <input type="email" id="auth-email" placeholder="Email" style="margin-bottom: 10px;">
+        <input type="password" id="auth-password" placeholder="Пароль" style="margin-bottom: 15px;">
+        <button onclick="handleLogin()" id="btn-login-submit" style="width: 100%; padding: 10px; background: #2563eb; font-size: 14px;">Увійти</button>
+        <div id="login-error" style="color: #ef4444; font-size: 12px; margin-top: 10px; display: none;"></div>
+    </div>
+</div>
+
 <div class="panel">
     <h3>
         <span>База Cards (Supabase)</span>
-        <span id="card-counter" class="status-badge">Завантаження...</span>
+        <div>
+            <span id="card-counter" class="status-badge">Завантаження...</span>
+            <button class="btn-logout" onclick="logout()" title="Вийти з акаунта">Вийти</button>
+        </div>
     </h3>
 
     <button id="btn-reload" class="btn-refresh" onclick="loadFromSupabase()">🔄 Оновити дані з хмари</button>
@@ -179,6 +210,58 @@
 
     let showZeroPrice = false;
 
+    // Авторизація
+    async function handleLogin() {
+        const email = document.getElementById('auth-email').value.trim();
+        const password = document.getElementById('auth-password').value;
+        const errDiv = document.getElementById('login-error');
+        const submitBtn = document.getElementById('btn-login-submit');
+
+        if (!email || !password) {
+            errDiv.innerText = "Введіть email та пароль";
+            errDiv.style.display = 'block';
+            return;
+        }
+
+        errDiv.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Вхід...";
+
+        try {
+            const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+                method: 'POST',
+                headers: {
+                    'apikey': SUPABASE_ANON_KEY,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ email, password })
+            });
+
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error_description || data.msg || 'Невірний email або пароль');
+            }
+
+            localStorage.setItem('sb_access_token', data.access_token);
+            document.getElementById('login-modal').style.display = 'none';
+            loadFromSupabase();
+
+        } catch (e) {
+            errDiv.innerText = e.message;
+            errDiv.style.display = 'block';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Увійти";
+        }
+    }
+
+    function logout() {
+        localStorage.removeItem('sb_access_token');
+        document.getElementById('login-modal').style.display = 'flex';
+        document.getElementById('playerTableBody').innerHTML = '';
+        document.getElementById('card-counter').innerText = 'Не авторизовано';
+    }
+
     function formatNumber(num) {
         if (num === null || num === undefined) return '';
         if (num == 0) return '0';
@@ -192,6 +275,13 @@
     }
 
     async function loadFromSupabase() {
+        const token = localStorage.getItem('sb_access_token');
+        if (!token) {
+            document.getElementById('login-modal').style.display = 'flex';
+            document.getElementById('card-counter').innerText = 'Потрібен вхід';
+            return;
+        }
+
         const counter = document.getElementById('card-counter');
         const btn = document.getElementById('btn-reload');
         const tbody = document.getElementById('playerTableBody');
@@ -200,7 +290,6 @@
         btn.disabled = true;
 
         try {
-            // PostgREST за замовчуванням повертає до 1000 рядків, тому робимо пагінацію діапазонами
             let allRows = [];
             let from = 0;
             let step = 1000;
@@ -211,13 +300,19 @@
                 let res = await fetch(`${SUPABASE_URL}/rest/v1/cards?select=*&order=player_id.asc`, {
                     headers: {
                         "apikey": SUPABASE_ANON_KEY,
-                        "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+                        "Authorization": `Bearer ${token}`,
                         "Range-Unit": "items",
                         "Range": `${from}-${to}`
                     }
                 });
 
-                if (!res.ok) throw new Error("Помилка Supabase API: " . res.statusText);
+                if (res.status === 401 || res.status === 403) {
+                    localStorage.removeItem('sb_access_token');
+                    document.getElementById('login-modal').style.display = 'flex';
+                    throw new Error("Сесія закінчилась або немає доступу. Увійдіть знову.");
+                }
+
+                if (!res.ok) throw new Error("Помилка Supabase: " + res.statusText);
 
                 let chunk = await res.json();
                 allRows = allRows.concat(chunk);
@@ -229,7 +324,6 @@
                 }
             }
 
-            // Групуємо записи по player_id (бо PS і PC збережені окремими рядками)
             const grouped = {};
             allRows.forEach(r => {
                 if (!grouped[r.player_id]) {
@@ -304,7 +398,7 @@
             updateRowNumbers();
 
         } catch (e) {
-            alert("Помилка завантаження з Supabase: " + e.message);
+            alert(e.message);
             counter.innerText = "Помилка";
         } finally {
             btn.disabled = false;
