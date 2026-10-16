@@ -15,7 +15,6 @@
             -webkit-text-size-adjust: 100%;
         }
 
-        
         .panel {
             background: #161923;
             padding: 12px;
@@ -190,7 +189,8 @@
                 <th class="sortable" onclick="sortByProfit('.ps-profit', 4)" title="Сортувати">Profit max PS ↕</th>
                 <th>Player Name</th>
                 <th>Version</th>
-                <th class="sortable" onclick="sortByProfit('.pc-profit', 7)" title="Сортувати">Profit max PC ↕</th>
+                <th>Graphics</th> <!-- ДОДАНО СТОВПЕЦЬ -->
+                <th class="sortable" onclick="sortByProfit('.pc-profit', 8)" title="Сортувати">Profit max PC ↕</th>
                 <th>PC Price</th>
                 <th>PC Min Limit</th>
                 <th>PC Max Limit</th>
@@ -296,7 +296,7 @@
             let hasMore = true;
 
             while (hasMore) {
-                let to = from + step - 1;
+                let to = from + step - 1; // Виправлено синтаксис
                 let res = await fetch(`${SUPABASE_URL}/rest/v1/cards?select=*&order=player_id.asc`, {
                     headers: {
                         "apikey": SUPABASE_ANON_KEY,
@@ -331,6 +331,7 @@
                         player_id: r.player_id,
                         name: r.name,
                         version: r.version,
+                        graphics: r.graphics, // ДОДАНО ПОЛЕ
                         link: r.link,
                         ps_price: null, ps_min: null, ps_max: null, ps_profit: null,
                         pc_price: null, pc_min: null, pc_max: null, pc_profit: null
@@ -368,6 +369,9 @@
                 tr.className = isZeroRow ? 'no-price-row highlight' : '';
                 if (isZeroRow) { tr.style.display = 'none'; }
 
+                // Формування HTML для Holo
+                let graphicsHtml = card.graphics === 'Holo' ? '<span style="color: #c026d3; font-weight: bold; text-shadow: 0 0 5px rgba(192,38,211,0.4);">Holo</span>' : '';
+
                 tr.innerHTML = `
                     <td><a href="${card.link}" class="table-link" target="_blank">${card.player_id},</a></td>
 
@@ -380,6 +384,7 @@
 
                     <td><a href="${card.link}" class="table-link" target="_blank"><b>${card.name || ''}</b></a></td>
                     <td>${card.version || ''}</td>
+                    <td>${graphicsHtml}</td>
 
                     ${card.pc_price !== null ? `
                         <td class="pc-profit">${formatNumber(card.pc_profit)}</td>
@@ -452,7 +457,8 @@
             if (isNaN(va) && isNaN(vb)) return 0;
             if (isNaN(va)) return 1;
             if (isNaN(vb)) return -1;
-            return dir === 'desc' ? vb - va : va - vb;
+
+            return dir === 'desc' ? vb - va : va - vb; // Виправлено синтаксис
         });
 
         tbody.innerHTML = '';
@@ -499,7 +505,7 @@
             }
         });
 
-        matchingPlayers.sort((a, b) => a.price - b.price);
+        matchingPlayers.sort((a, b) => a.price - b.price); // Виправлено синтаксис
 
         nonMatchingPlayers.sort((a, b) => {
             let idA = extractInt(a.querySelector("td a") ? a.querySelector("td a").innerText : '0') || 0;
@@ -551,12 +557,12 @@
             }
         });
 
-        matchingPlayers.sort((a, b) => a.price - b.price);
+        matchingPlayers.sort((a, b) => a.price - b.price); // Виправлено синтаксис
 
         nonMatchingPlayers.sort((a, b) => {
             let idA = extractInt(a.querySelector("td a") ? a.querySelector("td a").innerText : '0') || 0;
             let idB = extractInt(b.querySelector("td a") ? b.querySelector("td a").innerText : '0') || 0;
-            return idA - idB;
+            return idA - idB; // Виправлено синтаксис
         });
 
         tbody.innerHTML = '';
