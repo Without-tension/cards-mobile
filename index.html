@@ -36,6 +36,33 @@
             align-items: center;
         }
 
+        /* Стилі для панелі моніторингу та логів */
+        .monitor-panel {
+            background: #10131c;
+            border: 1px solid #2a2e37;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+        .monitor-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .monitor-row:last-child { margin-bottom: 0; }
+
+        .status-pill {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 11px;
+        }
+        .status-ok { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+        .status-warn { background: rgba(234, 179, 8, 0.2); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.4); }
+        .status-error { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+
         .status-badge {
             font-size: 11px;
             padding: 3px 8px;
@@ -83,7 +110,7 @@
 
         .table-wrapper {
             overflow-x: auto;
-            max-height: 75vh;
+            max-height: 70vh;
             border: 1px solid #2a2e37;
             border-radius: 6px;
             background: #10131c;
@@ -164,6 +191,22 @@
         </div>
     </h3>
 
+    <!-- ПАНЕЛЬ МОНІТОРИНГУ ТА ЛОГІВ СЕРВЕРА -->
+    <div class="monitor-panel">
+        <div class="monitor-row">
+            <span>Статус парсера:</span>
+            <span id="parser-status" class="status-pill status-warn">Перевірка...</span>
+        </div>
+        <div class="monitor-row">
+            <span>Останнє оновлення бази:</span>
+            <span id="last-update-time" style="color: #94a3b8;">–</span>
+        </div>
+        <div class="monitor-row">
+            <span>Діагностика / Помилки:</span>
+            <span id="parser-diagnosis" style="color: #cbd5e1; text-align: right; max-width: 60%;">Аналіз даних...</span>
+        </div>
+    </div>
+
     <button id="btn-reload" class="btn-refresh" onclick="loadFromSupabase()">🔄 Оновити дані з хмари</button>
 
     <div class="controls-grid">
@@ -189,7 +232,7 @@
                 <th class="sortable" onclick="sortByProfit('.ps-profit', 4)" title="Сортувати">Profit max PS ↕</th>
                 <th>Player Name</th>
                 <th>Version</th>
-                <th>Graphics</th> <!-- ДОДАНО СТОВПЕЦЬ -->
+                <th>Graphics</th>
                 <th class="sortable" onclick="sortByProfit('.pc-profit', 8)" title="Сортувати">Profit max PC ↕</th>
                 <th>PC Price</th>
                 <th>PC Min Limit</th>
@@ -274,6 +317,62 @@
         return isNaN(v) ? NaN : v;
     }
 
+    // Функція аналізу здоров'я парсера за даними з бази
+    function updateSystemLogs(allRows) {
+        const statusEl = document.getElementById('parser-status');
+        const timeEl = document.getElementById('last-update-time');
+        const diagEl = document.getElementById('parser-diagnosis');
+
+        if (!allRows || allRows.length === 0) {
+            statusEl.className = "status-pill status-error";
+            statusEl.innerText = "Помилка даних";
+            timeEl.innerText = "Немає записів";
+            diagEl.innerText = "Таблиця cards порожня або немає зв'язку.";
+            return;
+        }
+
+        // Шукаємо найсвіжішу дату оновлення серед усіх рядків
+        let latestDate = null;
+        allRows.forEach(r => {
+            if (r.updated_at) {
+                let d = new Date(r.updated_at);
+                if (!latestDate || d > latestDate) {
+                    latestDate = d;
+                }
+            }
+        });
+
+        if (!latestDate) {
+            statusEl.className = "status-pill status-warn";
+            statusEl.innerText = "Невідомо";
+            timeEl.innerText = "Дата відсутня";
+            diagEl.innerText = "У записах немає міток часу updated_at.";
+            return;
+        }
+
+        const now = new Date();
+        const diffMinutes = Math.floor((now - latestDate) / (1000 * 60));
+
+        // Виводимо час останнього оновлення
+        timeEl.innerText = latestDate.toLocaleString('uk-UA');
+
+        // Логіка визначення статусу роботи парсера
+        if (diffMinutes <= 15) {
+            statusEl.className = "status-pill status-ok";
+            statusEl.innerText = "Працює 24/7 (Активний)";
+            diagEl.innerText = `Оновлення було ${diffMinutes} хв. тому. Все гаразд.`;
+        } else if (diffMinutes <= 60) {
+            statusEl.className = "status-pill status-warn";
+            statusEl.innerText = "Затримка оновлення";
+            diagEl.innerText = `Останній запис ${diffMinutes} хв. тому. Можливо, черга мала або пауза.`;
+        } else {
+            statusEl.className = "status-pill status-error";
+            statusEl.innerText = "Парсер зупинився / Збій!";
+            const diffHours = (diffMinutes / 60).toFixed(1);
+            diagEl.innerText = `Немає оновлень вже ${diffHours} год. Перевірте Docker (FlareSolverr/MySQL) або логи скрипта!`;
+        }
+    }
+
     async function loadFromSupabase() {
         const token = localStorage.getItem('sb_access_token');
         if (!token) {
@@ -296,7 +395,7 @@
             let hasMore = true;
 
             while (hasMore) {
-                let to = from + step - 1; // Виправлено синтаксис
+                let to = from + step - 1;
                 let res = await fetch(`${SUPABASE_URL}/rest/v1/cards?select=*&order=player_id.asc`, {
                     headers: {
                         "apikey": SUPABASE_ANON_KEY,
@@ -324,6 +423,9 @@
                 }
             }
 
+            // Оновлюємо панель системних логів та діагностики
+            updateSystemLogs(allRows);
+
             const grouped = {};
             allRows.forEach(r => {
                 if (!grouped[r.player_id]) {
@@ -331,7 +433,7 @@
                         player_id: r.player_id,
                         name: r.name,
                         version: r.version,
-                        graphics: r.graphics, // ДОДАНО ПОЛЕ
+                        graphics: r.graphics,
                         link: r.link,
                         ps_price: null, ps_min: null, ps_max: null, ps_profit: null,
                         pc_price: null, pc_min: null, pc_max: null, pc_profit: null
@@ -369,7 +471,6 @@
                 tr.className = isZeroRow ? 'no-price-row highlight' : '';
                 if (isZeroRow) { tr.style.display = 'none'; }
 
-                // Формування HTML для Holo
                 let graphicsHtml = card.graphics === 'Holo' ? '<span style="color: #c026d3; font-weight: bold; text-shadow: 0 0 5px rgba(192,38,211,0.4);">Holo</span>' : '';
 
                 tr.innerHTML = `
@@ -405,6 +506,9 @@
         } catch (e) {
             alert(e.message);
             counter.innerText = "Помилка";
+            document.getElementById('parser-status').className = "status-pill status-error";
+            document.getElementById('parser-status').innerText = "Збій мережі";
+            document.getElementById('parser-diagnosis').innerText = e.message;
         } finally {
             btn.disabled = false;
         }
@@ -458,7 +562,7 @@
             if (isNaN(va)) return 1;
             if (isNaN(vb)) return -1;
 
-            return dir === 'desc' ? vb - va : va - vb; // Виправлено синтаксис
+            return dir === 'desc' ? vb - va : va - vb;
         });
 
         tbody.innerHTML = '';
@@ -505,7 +609,7 @@
             }
         });
 
-        matchingPlayers.sort((a, b) => a.price - b.price); // Виправлено синтаксис
+        matchingPlayers.sort((a, b) => a.price - b.price);
 
         nonMatchingPlayers.sort((a, b) => {
             let idA = extractInt(a.querySelector("td a") ? a.querySelector("td a").innerText : '0') || 0;
@@ -557,12 +661,12 @@
             }
         });
 
-        matchingPlayers.sort((a, b) => a.price - b.price); // Виправлено синтаксис
+        matchingPlayers.sort((a, b) => a.price - b.price);
 
         nonMatchingPlayers.sort((a, b) => {
             let idA = extractInt(a.querySelector("td a") ? a.querySelector("td a").innerText : '0') || 0;
             let idB = extractInt(b.querySelector("td a") ? b.querySelector("td a").innerText : '0') || 0;
-            return idA - idB; // Виправлено синтаксис
+            return idA - idB;
         });
 
         tbody.innerHTML = '';
